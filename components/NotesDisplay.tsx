@@ -14,6 +14,7 @@ const NotesDisplay: React.FC<NotesDisplayProps> = ({ notes, onStartQuiz, isQuizG
   const [playbackState, setPlaybackState] = useState<PlaybackState>('stopped');
   const [speakingSectionIndex, setSpeakingSectionIndex] = useState<number | null>(null);
   const utterancesRef = useRef<SpeechSynthesisUtterance[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -21,15 +22,56 @@ const NotesDisplay: React.FC<NotesDisplayProps> = ({ notes, onStartQuiz, isQuizG
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
+    const loadAndSetVoice = () => {
+      const voices = speechSynthesis.getVoices();
+      if (voices.length === 0) return; // Wait for voices to load
+
+      const englishVoices = voices.filter(v => v.lang.startsWith('en-'));
+      let bestVoice: SpeechSynthesisVoice | null = null;
+      
+      // Prioritize known high-quality voices often found on modern OSes
+      const preferredVoiceNames = [
+        'Google US English',
+        'Microsoft David - English (United States)',
+        'Microsoft Zira - English (United States)',
+        'Samantha', // Common on Apple devices
+        'Alex', // Common on Apple devices
+        'Google UK English Female',
+        'Google UK English Male',
+      ];
+
+      bestVoice = englishVoices.find(v => preferredVoiceNames.includes(v.name)) || null;
+
+      if (!bestVoice) {
+        // Fallback to a non-local (often higher quality cloud-based) voice
+        bestVoice = englishVoices.find(v => !v.localService) || null;
+      }
+      
+      if (!bestVoice) {
+        // Finally, fallback to the default voice or the first available one
+        bestVoice = englishVoices.find(v => v.default) || englishVoices[0] || null;
+      }
+      
+      setSelectedVoice(bestVoice);
+      speechSynthesis.onvoiceschanged = null; // We've got a voice, no need to listen anymore
+    };
+
+    // Voices are loaded asynchronously, so we need to listen for the 'voiceschanged' event.
+    loadAndSetVoice();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = loadAndSetVoice;
+    }
+
     // Cleanup on component unmount
     return () => {
       speechSynthesis.cancel();
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      speechSynthesis.onvoiceschanged = null;
     };
   }, []);
 
   useEffect(() => {
-    // When notes change, stop any current speech and reset state.
+    // When notes or the selected voice changes, stop any current speech and recreate the utterances.
     if (speechSynthesis.speaking || speechSynthesis.pending) {
       speechSynthesis.cancel();
     }
@@ -40,6 +82,13 @@ const NotesDisplay: React.FC<NotesDisplayProps> = ({ notes, onStartQuiz, isQuizG
     if (notes && window.speechSynthesis) {
         utterancesRef.current = notes.map((section, index) => {
             const utterance = new SpeechSynthesisUtterance(`${section.heading}. ${section.content}`);
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            }
+            // Explicitly set rate and pitch for a more consistent, natural delivery.
+            utterance.pitch = 1.0;
+            utterance.rate = 1.0;
+
             utterance.onstart = () => setSpeakingSectionIndex(index);
             utterance.onend = () => {
                 if (index === utterancesRef.current.length - 1) {
@@ -56,7 +105,7 @@ const NotesDisplay: React.FC<NotesDisplayProps> = ({ notes, onStartQuiz, isQuizG
         });
     }
 
-  }, [notes]);
+  }, [notes, selectedVoice]);
 
   const handlePlay = () => {
     if (!utterancesRef.current.length) return;
