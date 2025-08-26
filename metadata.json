@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Learning Studio",
+  "description": "An AI-powered learning application that generates detailed, illustrated, and narrated notes on any topic you wish to explore. Simply enter a topic, and get back comprehensive study materials complete with images and audio playback.",
+  "requestFramePermissions": []
+}
